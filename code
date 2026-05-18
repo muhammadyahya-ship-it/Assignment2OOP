@@ -1,6 +1,0 @@
-mkdir code
-cdcode
-touch somefile.txt   # or create any real file
-cd ..
-git add code/
-git commit -m "add code"
