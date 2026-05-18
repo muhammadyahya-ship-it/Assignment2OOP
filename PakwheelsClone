@@ -12,10 +12,7 @@ const int MAX_SELLER_LISTINGS = 20;
 
 
 
-//  ABSTRACT CLASS 1 : ISearchable
-//  Pure virtual interface -- any class that wants to be
-//  searchable inside the marketplace must implement these two.
-//  Listing inherits this so we can search listings by keyword.
+
 
 class ISearchable {
 public:
@@ -26,10 +23,6 @@ public:
 
 
 
-//  ABSTRACT CLASS 2 : IReportable
-//  Any user role that can produce a summary report implements
-//  this. Seller and Admin both inherit it below.
-
 class IReportable {
 public:
     virtual void   genReport()    const = 0;
@@ -39,9 +32,6 @@ public:
 
 
 
-//  ABSTRACT CLASS 3 : IPriceable
-//  Anything that has a price and can be discounted implements
-//  this. Listing inherits it -- keeps pricing logic separate.
 
 class IPriceable {
 public:
@@ -52,9 +42,7 @@ public:
 
 
 
-//  ABSTRACT CLASS 4 : IVerifiable
-//  Seller accounts can be verified; this interface enforces
-//  a standard way to check and set that state.
+
 
 class IVerifiable {
 public:
@@ -101,16 +89,13 @@ public:
     }
 
     //  OPERATOR OVERLOAD 1 : == 
-    // Compares two engines by type + CC size. Used when a buyer
-    // wants to find listings with an identical engine spec.
-    
+   
     bool operator==(const Engine& e) const {
         return (engKind == e.engKind && (int)ccSize == (int)e.ccSize);
     }
 
     //  OPERATOR OVERLOAD 2 : + 
-    // Merges two engine specs into one combined engine object.
-    // Useful for twin-engine performance calc / display.
+
     Engine operator+(const Engine& e) const {
         Engine merged;
         merged.engKind  = engKind + "+" + e.engKind;
@@ -158,13 +143,11 @@ public:
 
 
     //  FRIEND FUNCTION 1 
-    // printEngineSecret needs direct access to private engKind
-    // and horsePwr without going through getters, because this
-    // is a diagnostic dump used only in specific admin contexts.
+  
     friend void printEngineSecret(const Engine& e);
 };
 
-// friend function defined outside the class
+
 void printEngineSecret(const Engine& e) {
     cout << "  [DIAG] Engine internals -> kind: " << e.engKind
          << "  raw HP: "  << e.horsePwr
@@ -173,7 +156,6 @@ void printEngineSecret(const Engine& e) {
 
 
 
-//  Vehicle  (Abstract class -- already was one)
 
 class Vehicle {
 private:
@@ -212,7 +194,7 @@ public:
 
     //  OPERATOR OVERLOAD 3 : == 
     // Two vehicles are "equal" if same brand + model + year.
-    // Useful when checking for duplicate listings.
+
     bool operator==(const Vehicle& v) const {
         return (brand == v.brand && model == v.model && year == v.year);
     }
@@ -247,7 +229,7 @@ int Vehicle::vehicleCount = 0;
 
 
 
-//  Car  (inherits Vehicle)
+
 
 class Car : public Vehicle {
 private:
@@ -276,7 +258,7 @@ public:
           gearboxType(c.gearboxType), driveMode(c.driveMode),
           kmPerLtr(c.kmPerLtr), hasAC(c.hasAC) {}
 
-    // polymorphism -- Car's own version of display()
+
     void display() const override {
         cout << "    [CAR] " << getBrand() << " " << getModel()
              << " (" << getYear() << ")\n";
@@ -321,7 +303,7 @@ public:
 
 
 
-//  Bike  (inherits Vehicle)
+
 
 class Bike : public Vehicle {
 private:
@@ -350,7 +332,7 @@ public:
           gearCnt(b.gearCnt), seatHtMM(b.seatHtMM),
           hasSideCar(b.hasSideCar) {}
 
-    // polymorphism -- Bike's own version of display()
+
     void display() const override {
         cout << "    [BIKE] " << getBrand() << " " << getModel()
              << " (" << getYear() << ")\n";
@@ -400,7 +382,6 @@ const string Bike::BIKE_STANDARD  = "ISO-11451";
 
 
 
-//  User  (Abstract)
 
 class User {
 private:
@@ -447,16 +428,14 @@ public:
         return *this;
     }
 
-    //  OPERATOR OVERLOAD 4 : == 
-    // Two user accounts are equal if they share the same UID.
-    // Handy when checking for duplicate registrations.
+
     bool operator==(const User& u) const {
         return uid == u.uid;
     }
 
     virtual ~User() { userCount--; }
 
-    // pure virtual -- every role must say what it is
+
     virtual string getRole() const = 0;
 
     virtual void showProfile() const {
@@ -493,11 +472,7 @@ public:
     void setActive  (bool   a) { isActive = a; }
 
 
-    //  FRIEND FUNCTION 2 
-    // transferBudget needs to read and write Buyer::budget directly.
-    // Declared here in User so the friendship applies to the derived
-    // Buyer class members when we forward-declare below.
-    // (actual definition is after Buyer class)
+
     friend void transferBudget(class Buyer& giver, class Buyer& recvr, float amt);
 };
 
@@ -591,7 +566,7 @@ int Message::nextMID  = 5001;
 
 
 
-//  Listing  (also implements ISearchable and IPriceable)
+
 
 class Listing : public ISearchable, public IPriceable {
 private:
@@ -633,8 +608,7 @@ public:
         listCnt--;
     }
 
-    //  ISearchable implementation 
-    // matchesQuery checks if the keyword appears in brand/model/location.
+
     bool matchesQuery(const string& kw) const override {
         if (!vehicle) return false;
         return (vehicle->getBrand().find(kw)  != string::npos ||
@@ -647,7 +621,7 @@ public:
         return vehicle->getBrand() + " " + vehicle->getModel();
     }
 
-    //  IPriceable implementation 
+
     double getBasePrice() const override { return price; }
 
     double getDiscountedPrice(int pct) const override {
@@ -656,8 +630,7 @@ public:
     }
 
     //  OPERATOR OVERLOAD 5 : < 
-    // Compare two listings by price (cheaper = "less than").
-    // Useful for sorting / finding the best deal.
+
     bool operator<(const Listing& l) const {
         return price < l.price;
     }
@@ -707,9 +680,7 @@ public:
 
 
     //  FRIEND FUNCTION 3 
-    // comparePrices needs direct access to the private price field
-    // of both listings without going through getters, to do a fast
-    // raw comparison (e.g. for an admin audit report).
+
     friend void comparePrices(const Listing& a, const Listing& b);
 };
 
@@ -731,8 +702,6 @@ void comparePrices(const Listing& a, const Listing& b) {
 }
 
 
-
-//  Admin  (inherits User + IReportable)
 
 class Admin : public User, public IReportable {
 private:
@@ -780,7 +749,6 @@ public:
         cout << "    Managed  : " << managedListings << " listings\n";
     }
 
-    //  IReportable implementation 
     void genReport() const override {
         cout << "\n  === ADMIN REPORT ===\n";
         cout << "  Admin      : " << getUsername() << "\n";
@@ -839,7 +807,6 @@ public:
 
 
 
-//  Seller  (inherits User + IReportable + IVerifiable)
 
 class Seller : public User, public IReportable, public IVerifiable {
 private:
@@ -911,7 +878,7 @@ public:
                " rating=" + to_string((int)rating) + "/5";
     }
 
-    //  IVerifiable implementation 
+  
     bool isVerified() const override { return verified; }
     void doVerify()         override {
         verified = true;
@@ -946,7 +913,6 @@ public:
 
     void logSale() { salesDone++; }
 
-    // kept for backward compatibility (calls doVerify internally)
     void verify() { doVerify(); }
 
     string   getBizName()    const { return bizName;  }
@@ -960,13 +926,13 @@ public:
     void setBizName  (string b) { bizName  = b; }
     void markVerified(bool   v) { verified = v; }
 
-    // friend declaration so isCompatible can read private rating
+
     friend bool isCompatible(const Seller& s, const Buyer& b);
 };
 
 
 
-//  Buyer  (inherits User)
+
 
 class Buyer : public User {
 private:
@@ -1068,21 +1034,17 @@ public:
 
 
     //  FRIEND FUNCTION 4 
-    // isCompatible checks whether a seller's rating is good enough
-    // for a buyer's budget tier. It needs raw access to Seller::rating
-    // and Buyer::budget which are both private. Declared friend in
-    // both classes (Seller above already has it through User friend chain).
+    
     friend bool isCompatible(const Seller& s, const Buyer& b);
 
-    // transferBudget friend declared in User, but needs Buyer::budget
-    // so re-declared here for access
+
     friend void transferBudget(Buyer& giver, Buyer& recvr, float amt);
 };
 
 
-// friend function bodies for Buyer-related friends
+
 bool isCompatible(const Seller& s, const Buyer& b) {
-    // a seller with rating >= 3.5 is compatible with any budget > 500k
+   
     bool ratingOk = (s.rating >= 3.5f);
     bool budgetOk = (b.budget > 500000.0f);
     cout << "  [COMPAT CHECK] Seller rating=" << s.rating
@@ -1104,7 +1066,7 @@ void transferBudget(Buyer& giver, Buyer& recvr, float amt) {
 
 
 
-//  Global arrays  (same as before)
+
 
 Listing* listings[MAX_LISTINGS];
 int      lstCount = 0;
@@ -1120,7 +1082,7 @@ int      adminCount = 0;
 
 
 
-//  UI helpers
+
 
 void line()  { cout << "  " << string(52, '-') << "\n"; }
 void header(const string& t) {
@@ -1147,48 +1109,46 @@ Engine collectEngineData() {
 
 
 
-//  Demo function for all NEW concepts (runs at startup)
 
 void runNewFeaturesDemo() {
     header("DEMO -- NEW OOP FEATURES (Assignment 2)");
 
-    // --- operator== on Engine ---
+
     Engine e1("Petrol", 1300, 90, 120, false);
     Engine e2("Petrol", 1300, 95, 115, true);
     Engine e3("Diesel", 2000, 130, 250, false);
     cout << "  [op==] e1 == e2 (same type+CC): " << (e1 == e2 ? "true" : "false") << "\n";
     cout << "  [op==] e1 == e3 (diff type):    " << (e1 == e3 ? "true" : "false") << "\n";
 
-    // --- operator+ on Engine ---
+
     Engine combined = e1 + e3;
     cout << "  [op+]  Combined engine: ";
     combined.printEngInfo();
 
-    // --- friend printEngineSecret ---
     printEngineSecret(e1);
 
-    // --- operator== on Vehicle via Car ---
+
     Car c1("Toyota", "Corolla", 2022, 30000, "White", e1, 4, "Auto", "FWD", 14.0f, true);
     Car c2("Toyota", "Corolla", 2022, 55000, "Silver", e2, 4, "Manual", "FWD", 13.0f, true);
     Car c3("Honda",  "Civic",   2021, 20000, "Black",  e3, 4, "Auto", "FWD", 13.5f, true);
     cout << "  [op==] c1 == c2 (same brand/model/year): " << (c1 == c2 ? "true" : "false") << "\n";
     cout << "  [op==] c1 == c3 (diff brand):            " << (c1 == c3 ? "true" : "false") << "\n";
 
-    // --- operator== on User ---
+  
     Seller s1("ahmed_s", "ahmed@mail.com",  "0300-1111111", "Ahmed Motors");
     Seller s2("bilal_s", "bilal@mail.com",  "0301-2222222", "Bilal Autos");
     cout << "  [op==] s1 == s1 (same UID): " << (s1 == (User&)s1 ? "true" : "false") << "\n";
     cout << "  [op==] s1 == s2 (diff UID): " << (s1 == (User&)s2 ? "true" : "false") << "\n";
 
-    // --- IVerifiable ---
+
     cout << "  [IVerifiable] s1 verified before: " << (s1.isVerified() ? "yes" : "no") << "\n";
     s1.doVerify();
     cout << "  [IVerifiable] s1 verified after:  " << (s1.isVerified() ? "yes" : "no") << "\n";
 
-    // --- IReportable ---
+  
     s1.genReport();
 
-    // --- Listing + IPriceable + ISearchable + operator< ---
+   
     Car* carPtr1 = new Car("Toyota", "Corolla", 2022, 30000, "White", e1, 4, "Auto", "FWD", 14.0f, true);
     Car* carPtr2 = new Car("Honda",  "Civic",   2021, 20000, "Black", e3, 4, "Auto", "FWD", 13.5f, true);
     Listing lst1(carPtr1, s1.getUID(), 3200000.0, "Karachi");
@@ -1200,10 +1160,10 @@ void runNewFeaturesDemo() {
     cout << "  [ISearchable] 'BMW' in lst1   : " << (lst1.matchesQuery("BMW")    ? "found" : "not found") << "\n";
     cout << "  [op<] lst2 < lst1 (lst2 cheaper): " << (lst2 < lst1 ? "true" : "false") << "\n";
 
-    // --- friend comparePrices ---
+   
     comparePrices(lst1, lst2);
 
-    // --- Buyer + friend isCompatible + transferBudget ---
+    
     Buyer b1("sara_b",  "sara@mail.com",  "0302-3333333", 1500000.0f, "Toyota");
     Buyer b2("usman_b", "usman@mail.com", "0303-4444444",  300000.0f, "Honda");
     s1.refreshRating(4.2f);
@@ -1211,7 +1171,7 @@ void runNewFeaturesDemo() {
     isCompatible(s1, b2);
     transferBudget(b1, b2, 200000.0f);
 
-    // --- friend printEngineSecret ---
+    
     cout << "  [friend] Accessing engine private data directly:\n";
     printEngineSecret(e2);
 
@@ -1220,7 +1180,7 @@ void runNewFeaturesDemo() {
 
 
 
-//  Menu functions (unchanged from assignment 1)
+
 
 void addNewListing() {
     header("ADD NEW VEHICLE LISTING");
@@ -1623,4 +1583,3 @@ int main() {
 
     return 0;
 }
-
