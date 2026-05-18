@@ -1,1 +1,1626 @@
+#include <iostream>
+#include <string>
+#include <iomanip>
+#include <sstream>
+using namespace std;
+
+const int MAX_LISTINGS        = 100;
+const int MAX_USERS           = 50;
+const int MAX_MESSAGES        = 200;
+const int MAX_FAVORITES       = 20;
+const int MAX_SELLER_LISTINGS = 20;
+
+
+
+//  ABSTRACT CLASS 1 : ISearchable
+//  Pure virtual interface -- any class that wants to be
+//  searchable inside the marketplace must implement these two.
+//  Listing inherits this so we can search listings by keyword.
+
+class ISearchable {
+public:
+    virtual bool   matchesQuery(const string& kw)  const = 0;
+    virtual string getSearchKey()                  const = 0;
+    virtual ~ISearchable() {}
+};
+
+
+
+//  ABSTRACT CLASS 2 : IReportable
+//  Any user role that can produce a summary report implements
+//  this. Seller and Admin both inherit it below.
+
+class IReportable {
+public:
+    virtual void   genReport()    const = 0;
+    virtual string getSummaryTxt() const = 0;
+    virtual ~IReportable() {}
+};
+
+
+
+//  ABSTRACT CLASS 3 : IPriceable
+//  Anything that has a price and can be discounted implements
+//  this. Listing inherits it -- keeps pricing logic separate.
+
+class IPriceable {
+public:
+    virtual double  getBasePrice()          const = 0;
+    virtual double  getDiscountedPrice(int pct) const = 0;
+    virtual ~IPriceable() {}
+};
+
+
+
+//  ABSTRACT CLASS 4 : IVerifiable
+//  Seller accounts can be verified; this interface enforces
+//  a standard way to check and set that state.
+
+class IVerifiable {
+public:
+    virtual bool   isVerified()  const = 0;
+    virtual void   doVerify()          = 0;
+    virtual ~IVerifiable() {}
+};
+
+
+
+//  Engine
+
+class Engine {
+private:
+    string engKind;
+    float  ccSize;
+    int    horsePwr;
+    int    torque;
+    bool   hasTurbo;
+
+public:
+    Engine()
+        : engKind("Unknown"), ccSize(0.0f),
+          horsePwr(0), torque(0), hasTurbo(false) {}
+
+    Engine(string type, float disp, int hp, int tq, bool turbo)
+        : engKind(type), ccSize(disp),
+          horsePwr(hp), torque(tq), hasTurbo(turbo) {}
+
+    Engine(const Engine& e)
+        : engKind(e.engKind), ccSize(e.ccSize),
+          horsePwr(e.horsePwr), torque(e.torque),
+          hasTurbo(e.hasTurbo) {}
+
+    Engine& operator=(const Engine& e) {
+        if (this != &e) {
+            engKind  = e.engKind;
+            ccSize   = e.ccSize;
+            horsePwr = e.horsePwr;
+            torque   = e.torque;
+            hasTurbo = e.hasTurbo;
+        }
+        return *this;
+    }
+
+    //  OPERATOR OVERLOAD 1 : == 
+    // Compares two engines by type + CC size. Used when a buyer
+    // wants to find listings with an identical engine spec.
+    
+    bool operator==(const Engine& e) const {
+        return (engKind == e.engKind && (int)ccSize == (int)e.ccSize);
+    }
+
+    //  OPERATOR OVERLOAD 2 : + 
+    // Merges two engine specs into one combined engine object.
+    // Useful for twin-engine performance calc / display.
+    Engine operator+(const Engine& e) const {
+        Engine merged;
+        merged.engKind  = engKind + "+" + e.engKind;
+        merged.ccSize   = ccSize  + e.ccSize;
+        merged.horsePwr = horsePwr + e.horsePwr;
+        merged.torque   = torque   + e.torque;
+        merged.hasTurbo = hasTurbo || e.hasTurbo;
+        return merged;
+    }
+
+    void printEngInfo() const {
+        cout << "    Engine   : " << engKind
+             << " | " << ccSize << " CC"
+             << " | " << horsePwr << " HP"
+             << " | " << torque   << " Nm";
+        if (hasTurbo) cout << " | TURBO";
+        cout << "\n";
+    }
+
+    bool isHighPower() const { return horsePwr > 200; }
+
+    void boostEngine(int extraHP) {
+        horsePwr += extraHP;
+        cout << "    [Engine Upgraded] New HP: " << horsePwr << "\n";
+    }
+
+    string getShortDesc() const {
+        ostringstream oss;
+        oss << engKind << " " << (int)ccSize << "CC "
+            << horsePwr << "HP" << (hasTurbo ? " T" : "");
+        return oss.str();
+    }
+
+    string getEngineType() const { return engKind;  }
+    float  getCCSize()     const { return ccSize;   }
+    int    getHorsePwr()   const { return horsePwr; }
+    int    getTorque()     const { return torque;   }
+    bool   isTurbo()       const { return hasTurbo; }
+
+    void setEngineType(string t) { engKind   = t;  }
+    void setCCSize    (float  d) { ccSize    = d;  }
+    void setHorsePwr  (int   hp) { horsePwr  = hp; }
+    void setTorque    (int    t) { torque    = t;  }
+    void setTurboFlag (bool   b) { hasTurbo  = b;  }
+
+
+    //  FRIEND FUNCTION 1 
+    // printEngineSecret needs direct access to private engKind
+    // and horsePwr without going through getters, because this
+    // is a diagnostic dump used only in specific admin contexts.
+    friend void printEngineSecret(const Engine& e);
+};
+
+// friend function defined outside the class
+void printEngineSecret(const Engine& e) {
+    cout << "  [DIAG] Engine internals -> kind: " << e.engKind
+         << "  raw HP: "  << e.horsePwr
+         << "  turbo: "   << (e.hasTurbo ? "yes" : "no") << "\n";
+}
+
+
+
+//  Vehicle  (Abstract class -- already was one)
+
+class Vehicle {
+private:
+    string brand;
+    string model;
+    int    year;
+    float  mileage;
+    string color;
+    Engine engine;
+
+public:
+    static int vehicleCount;
+
+    Vehicle()
+        : brand("Unknown"), model("Unknown"), year(2000),
+          mileage(0.0f), color("White") {
+        vehicleCount++;
+    }
+
+    Vehicle(string b, string m, int y, float mil, string c, Engine eng)
+        : brand(b), model(m), year(y), mileage(mil), color(c), engine(eng) {
+        vehicleCount++;
+    }
+
+    Vehicle(const Vehicle& v)
+        : brand(v.brand), model(v.model), year(v.year),
+          mileage(v.mileage), color(v.color), engine(v.engine) {
+        vehicleCount++;
+    }
+
+    virtual ~Vehicle() { vehicleCount--; }
+
+    // pure virtual -- every derived vehicle must implement these
+    virtual void   display()        const = 0;
+    virtual string getVehicleType() const = 0;
+
+    //  OPERATOR OVERLOAD 3 : == 
+    // Two vehicles are "equal" if same brand + model + year.
+    // Useful when checking for duplicate listings.
+    bool operator==(const Vehicle& v) const {
+        return (brand == v.brand && model == v.model && year == v.year);
+    }
+
+    string        getBrand()   const { return brand;   }
+    string        getModel()   const { return model;   }
+    int           getYear()    const { return year;    }
+    float         getMileage() const { return mileage; }
+    string        getColor()   const { return color;   }
+    const Engine& getEngine()  const { return engine;  }
+
+    void showBasicInfo() const {
+        cout << brand << " " << model
+             << " (" << year << ") | "
+             << mileage << " km | " << color << "\n";
+    }
+
+    bool isRecentMake() const { return year >= 2024;       }
+    bool hasLowKM()     const { return mileage < 50000.0f; }
+
+    void setBrand  (string b) { brand   = b; }
+    void setModel  (string m) { model   = m; }
+    void setYear   (int    y) { year    = y; }
+    void setMileage(float  m) { mileage = m; }
+    void setColor  (string c) { color   = c; }
+    void setEngine (Engine e) { engine  = e; }
+
+    static int getVehicleCount() { return vehicleCount; }
+};
+
+int Vehicle::vehicleCount = 0;
+
+
+
+//  Car  (inherits Vehicle)
+
+class Car : public Vehicle {
+private:
+    int    doorCnt;
+    string gearboxType;
+    string driveMode;
+    float  kmPerLtr;
+    bool   hasAC;
+
+    static const string SAFETY_STANDARD;
+
+public:
+    Car()
+        : Vehicle(), doorCnt(4), gearboxType("Manual"),
+          driveMode("FWD"), kmPerLtr(12.0f), hasAC(true) {}
+
+    Car(string brand, string model, int year, float mileage, string color,
+        Engine engine, int doors, string trans, string drive,
+        float fuel, bool ac)
+        : Vehicle(brand, model, year, mileage, color, engine),
+          doorCnt(doors), gearboxType(trans), driveMode(drive),
+          kmPerLtr(fuel), hasAC(ac) {}
+
+    Car(const Car& c)
+        : Vehicle(c), doorCnt(c.doorCnt),
+          gearboxType(c.gearboxType), driveMode(c.driveMode),
+          kmPerLtr(c.kmPerLtr), hasAC(c.hasAC) {}
+
+    // polymorphism -- Car's own version of display()
+    void display() const override {
+        cout << "    [CAR] " << getBrand() << " " << getModel()
+             << " (" << getYear() << ")\n";
+        cout << "    Color   : " << getColor()
+             << "  |  Mileage: " << getMileage() << " km\n";
+        cout << "    Doors   : " << doorCnt
+             << "  |  Trans : "  << gearboxType
+             << "  |  Drive : "  << driveMode << "\n";
+        cout << "    Fuel Eff: " << kmPerLtr << " km/l"
+             << "  |  AC: " << (hasAC ? "Yes" : "No") << "\n";
+        cout << "    Safety  : " << SAFETY_STANDARD << "\n";
+        getEngine().printEngInfo();
+    }
+
+    string getVehicleType() const override { return "Car"; }
+
+    bool   isFuelFriendly() const { return kmPerLtr > 15.0f;               }
+    bool   isHighPerfCar()  const { return getEngine().getHorsePwr() > 200; }
+
+    string getCarClass() const {
+        if (doorCnt == 2) return "Coupe / Sports";
+        if (doorCnt == 4) return "Sedan / SUV";
+        return "Other";
+    }
+
+    void printSafetyInfo() const {
+        cout << "    Safety Standard: " << SAFETY_STANDARD << "\n";
+    }
+
+    int    getDoorCnt()     const { return doorCnt;     }
+    string getGearboxType() const { return gearboxType; }
+    string getDriveMode()   const { return driveMode;   }
+    float  getKmPerLtr()    const { return kmPerLtr;    }
+    bool   getHasAC()       const { return hasAC;       }
+
+    void setDoorCnt    (int    d) { doorCnt     = d; }
+    void setGearboxType(string t) { gearboxType = t; }
+    void setDriveMode  (string d) { driveMode   = d; }
+    void setKmPerLtr   (float  f) { kmPerLtr    = f; }
+    void setHasAC      (bool   a) { hasAC       = a; }
+};
+
+
+
+//  Bike  (inherits Vehicle)
+
+class Bike : public Vehicle {
+private:
+    string bikeType;
+    bool   hasFairPanel;
+    int    gearCnt;
+    float  seatHtMM;
+    bool   hasSideCar;
+
+    static const string BIKE_STANDARD;
+
+public:
+    Bike()
+        : Vehicle(), bikeType("Commuter"), hasFairPanel(false),
+          gearCnt(5), seatHtMM(800.0f), hasSideCar(false) {}
+
+    Bike(string brand, string model, int year, float mileage, string color,
+         Engine engine, string type, bool fairing,
+         int gears, float seat, bool sidecar)
+        : Vehicle(brand, model, year, mileage, color, engine),
+          bikeType(type), hasFairPanel(fairing), gearCnt(gears),
+          seatHtMM(seat), hasSideCar(sidecar) {}
+
+    Bike(const Bike& b)
+        : Vehicle(b), bikeType(b.bikeType), hasFairPanel(b.hasFairPanel),
+          gearCnt(b.gearCnt), seatHtMM(b.seatHtMM),
+          hasSideCar(b.hasSideCar) {}
+
+    // polymorphism -- Bike's own version of display()
+    void display() const override {
+        cout << "    [BIKE] " << getBrand() << " " << getModel()
+             << " (" << getYear() << ")\n";
+        cout << "    Color     : " << getColor()
+             << "  |  Mileage  : " << getMileage() << " km\n";
+        cout << "    Type      : " << bikeType
+             << "  |  Gears    : " << gearCnt
+             << "  |  Seat(mm) : " << seatHtMM << "\n";
+        cout << "    Fairing   : " << (hasFairPanel ? "Yes" : "No")
+             << "  |  Sidecar  : " << (hasSideCar   ? "Yes" : "No") << "\n";
+        cout << "    Standard  : " << BIKE_STANDARD << "\n";
+        getEngine().printEngInfo();
+    }
+
+    string getVehicleType() const override { return "Bike"; }
+
+    bool isSportType()    const { return bikeType == "Sport";    }
+    bool isCommuterType() const { return bikeType == "Commuter"; }
+
+    string getRiderStyle() const {
+        if (seatHtMM < 750) return "Low Rider";
+        if (seatHtMM < 850) return "Standard";
+        return "Adventure / Off-road";
+    }
+
+    void printBikeDetails() const {
+        cout << "    Type: " << bikeType
+             << "  |  Gears: " << gearCnt
+             << "  |  Category: " << getRiderStyle() << "\n";
+    }
+
+    string getBikeCat()   const { return bikeType;     }
+    int    getGearCnt()   const { return gearCnt;      }
+    float  getSeatHt()    const { return seatHtMM;     }
+    bool   checkFairing() const { return hasFairPanel; }
+    bool   checkSidecar() const { return hasSideCar;   }
+
+    void setBikeCat    (string t) { bikeType     = t; }
+    void setGearCnt    (int    g) { gearCnt      = g; }
+    void setSeatHt     (float  s) { seatHtMM     = s; }
+    void setFairingFlag(bool   f) { hasFairPanel = f; }
+    void setSidecarFlag(bool   s) { hasSideCar   = s; }
+};
+
+const string Car::SAFETY_STANDARD = "ISO-39816";
+const string Bike::BIKE_STANDARD  = "ISO-11451";
+
+
+
+//  User  (Abstract)
+
+class User {
+private:
+    int    uid;
+    string username;
+    string email;
+    string pwdHash;
+    string phoneNum;
+    bool   isActive;
+
+    static const string PLATFORM;
+
+public:
+    static int userCount;
+    static int nextUID;
+
+    User()
+        : uid(nextUID++), username("Guest"), email(""),
+          pwdHash(""), phoneNum(""), isActive(true) {
+        userCount++;
+    }
+
+    User(string uname, string mail, string phone)
+        : uid(nextUID++), username(uname), email(mail),
+          pwdHash("hash_" + uname), phoneNum(phone), isActive(true) {
+        userCount++;
+    }
+
+    User(const User& u)
+        : uid(nextUID++), username(u.username + "_copy"),
+          email(u.email), pwdHash(u.pwdHash),
+          phoneNum(u.phoneNum), isActive(u.isActive) {
+        userCount++;
+    }
+
+    User& operator=(const User& u) {
+        if (this != &u) {
+            username = u.username;
+            email    = u.email;
+            pwdHash  = u.pwdHash;
+            phoneNum = u.phoneNum;
+            isActive = u.isActive;
+        }
+        return *this;
+    }
+
+    //  OPERATOR OVERLOAD 4 : == 
+    // Two user accounts are equal if they share the same UID.
+    // Handy when checking for duplicate registrations.
+    bool operator==(const User& u) const {
+        return uid == u.uid;
+    }
+
+    virtual ~User() { userCount--; }
+
+    // pure virtual -- every role must say what it is
+    virtual string getRole() const = 0;
+
+    virtual void showProfile() const {
+        cout << "    User ID  : " << uid
+             << "  |  Username: " << username << "\n";
+        cout << "    Email    : " << email
+             << "  |  Phone   : " << phoneNum << "\n";
+        cout << "    Status   : " << (isActive ? "Active" : "Inactive")
+             << "  |  Platform: " << PLATFORM << "\n";
+    }
+
+    static int getUserCount() { return userCount; }
+
+    bool checkLogin(const string& uname, const string& /*pass*/) const {
+        return (username == uname && pwdHash == "hash_" + uname);
+    }
+
+    void disableAccount() {
+        isActive = false;
+        cout << "    Account [" << username << "] deactivated.\n";
+    }
+
+    void changeEmail(const string& newEmail) { email = newEmail; }
+
+    int    getUID()         const { return uid;      }
+    string getUsername()    const { return username; }
+    string getEmail()       const { return email;    }
+    string getPhone()       const { return phoneNum; }
+    bool   isActiveStatus() const { return isActive; }
+
+    void setUsername(string u) { username = u; }
+    void setEmail   (string e) { email    = e; }
+    void setPhone   (string p) { phoneNum = p; }
+    void setActive  (bool   a) { isActive = a; }
+
+
+    //  FRIEND FUNCTION 2 
+    // transferBudget needs to read and write Buyer::budget directly.
+    // Declared here in User so the friendship applies to the derived
+    // Buyer class members when we forward-declare below.
+    // (actual definition is after Buyer class)
+    friend void transferBudget(class Buyer& giver, class Buyer& recvr, float amt);
+};
+
+int User::userCount = 0;
+int User::nextUID   = 1001;
+const string User::PLATFORM = "PakWheels-Clone";
+
+
+
+//  Message
+
+class Message {
+private:
+    int    messageID;
+    int    senderID;
+    int    receiverID;
+    string content;
+    string timestamp;
+    bool   isRead;
+
+    static const int MAX_CHAR_LIMIT = 500;
+    static int msgCount;
+    static int nextMID;
+
+public:
+    Message()
+        : messageID(nextMID++), senderID(0), receiverID(0),
+          content(""), timestamp("N/A"), isRead(false) {
+        msgCount++;
+    }
+
+    Message(int sid, int rid, const string& msg, const string& ts)
+        : messageID(nextMID++), senderID(sid), receiverID(rid),
+          content(msg.length() > 500 ? msg.substr(0, 500) : msg),
+          timestamp(ts), isRead(false) {
+        msgCount++;
+    }
+
+    Message(const Message& m)
+        : messageID(nextMID++), senderID(m.senderID),
+          receiverID(m.receiverID), content(m.content),
+          timestamp(m.timestamp), isRead(m.isRead) {
+        msgCount++;
+    }
+
+    Message& operator=(const Message& m) {
+        if (this != &m) {
+            senderID   = m.senderID;
+            receiverID = m.receiverID;
+            content    = m.content;
+            timestamp  = m.timestamp;
+            isRead     = m.isRead;
+        }
+        return *this;
+    }
+
+    ~Message() { msgCount--; }
+
+    void printMsg() const {
+        cout << "    [MSG #"  << messageID
+             << "] From: "   << senderID
+             << "  ->  To: " << receiverID << "\n";
+        cout << "    Content : " << content   << "\n";
+        cout << "    Time    : " << timestamp
+             << "  |  Read: " << (isRead ? "Yes" : "No") << "\n";
+    }
+
+    void flagRead()       { isRead = true;          }
+    bool isEmpty()  const { return content.empty();  }
+
+    string getMsgPreview() const {
+        return content.length() > 40 ? content.substr(0, 40) + "..." : content;
+    }
+
+    static int getMsgCount() { return msgCount; }
+
+    int    getMsgID()    const { return messageID;  }
+    int    getSender()   const { return senderID;   }
+    int    getReceiver() const { return receiverID; }
+    string getContent()  const { return content;    }
+    bool   wasRead()     const { return isRead;     }
+
+    void setContent(const string& c) {
+        content = (c.length() > 500) ? c.substr(0, 500) : c;
+    }
+    void markRead(bool r) { isRead = r; }
+};
+
+int Message::msgCount = 0;
+int Message::nextMID  = 5001;
+
+
+
+//  Listing  (also implements ISearchable and IPriceable)
+
+class Listing : public ISearchable, public IPriceable {
+private:
+    int      listingID;
+    Vehicle* vehicle;
+    int      sellerID;
+    double   price;
+    string   location;
+    bool     isApproved;
+    bool     isActive;
+
+    static const string CURRENCY;
+    static int listCnt;
+    static int nextLID;
+
+public:
+    Listing()
+        : listingID(nextLID++), vehicle(NULL), sellerID(0),
+          price(0.0), location("Unknown"), isApproved(false), isActive(true) {
+        listCnt++;
+    }
+
+    Listing(Vehicle* v, int sid, double p, const string& loc)
+        : listingID(nextLID++), vehicle(v), sellerID(sid),
+          price(p), location(loc), isApproved(false), isActive(true) {
+        listCnt++;
+    }
+
+    Listing(const Listing& l)
+        : listingID(nextLID++), vehicle(NULL),
+          sellerID(l.sellerID), price(l.price), location(l.location),
+          isApproved(l.isApproved), isActive(l.isActive) {
+        listCnt++;
+    }
+
+    ~Listing() {
+        delete vehicle;
+        vehicle = NULL;
+        listCnt--;
+    }
+
+    //  ISearchable implementation 
+    // matchesQuery checks if the keyword appears in brand/model/location.
+    bool matchesQuery(const string& kw) const override {
+        if (!vehicle) return false;
+        return (vehicle->getBrand().find(kw)  != string::npos ||
+                vehicle->getModel().find(kw)  != string::npos ||
+                location.find(kw)             != string::npos);
+    }
+
+    string getSearchKey() const override {
+        if (!vehicle) return location;
+        return vehicle->getBrand() + " " + vehicle->getModel();
+    }
+
+    //  IPriceable implementation 
+    double getBasePrice() const override { return price; }
+
+    double getDiscountedPrice(int pct) const override {
+        if (pct < 0 || pct > 100) return price;
+        return price - (price * pct / 100.0);
+    }
+
+    //  OPERATOR OVERLOAD 5 : < 
+    // Compare two listings by price (cheaper = "less than").
+    // Useful for sorting / finding the best deal.
+    bool operator<(const Listing& l) const {
+        return price < l.price;
+    }
+
+    void printListing() const {
+        cout << "\n  +--- LISTING #" << listingID << " -+\n";
+        cout << "  |  Price    : " << CURRENCY << " "
+             << fixed << setprecision(0) << price
+             << "  |  Location : " << location << "\n";
+        cout << "  |  Approved : " << (isApproved ? "Yes" : "Pending")
+             << "   |  Active   : " << (isActive ? "Yes" : "No") << "\n";
+        cout << "  +---+\n";
+        if (vehicle) vehicle->display();
+    }
+
+    void printCompact() const {
+        if (!vehicle) return;
+        cout << "  [#" << setw(4) << listingID << "] "
+             << vehicle->getBrand() << " " << vehicle->getModel()
+             << " (" << vehicle->getYear() << ")"
+             << "  -  " << CURRENCY << " " << price
+             << "  |  " << location
+             << "  |  " << (isApproved ? "Approved" : "Pending") << "\n";
+    }
+
+    bool fitsBrand  (const string& b)          const { return vehicle && vehicle->getBrand()   == b; }
+    bool fitsModel  (const string& m)          const { return vehicle && vehicle->getModel()   == m; }
+    bool fitsPrice  (double minP, double maxP) const { return price >= minP && price <= maxP;         }
+    bool fitsYear   (int y)                    const { return vehicle && vehicle->getYear()    == y;  }
+    bool fitsMileage(float maxMiles)           const { return vehicle && vehicle->getMileage() <= maxMiles; }
+
+    static int getListCnt() { return listCnt; }
+    static int getNextLID() { return nextLID; }
+
+    int      getLID()           const { return listingID;  }
+    Vehicle* getVehicle()       const { return vehicle;    }
+    int      getSellerID()      const { return sellerID;   }
+    double   getPrice()         const { return price;      }
+    string   getLocation()      const { return location;   }
+    bool     isApprovedStatus() const { return isApproved; }
+    bool     isActiveStatus()   const { return isActive;   }
+
+    void setPrice   (double p) { price      = p; }
+    void setLocation(string l) { location   = l; }
+    void setApproved(bool   a) { isApproved = a; }
+    void setActive  (bool   a) { isActive   = a; }
+
+
+    //  FRIEND FUNCTION 3 
+    // comparePrices needs direct access to the private price field
+    // of both listings without going through getters, to do a fast
+    // raw comparison (e.g. for an admin audit report).
+    friend void comparePrices(const Listing& a, const Listing& b);
+};
+
+int Listing::listCnt = 0;
+int Listing::nextLID = 3001;
+const string Listing::CURRENCY = "PKR";
+
+void comparePrices(const Listing& a, const Listing& b) {
+    cout << "  [PRICE COMPARE] Listing #" << a.listingID
+         << " (PKR " << a.price << ")  vs  Listing #"
+         << b.listingID << " (PKR " << b.price << ")  ->  ";
+
+    if (a.price < b.price)
+        cout << "Listing #" << a.listingID << " is cheaper.\n";
+    else if (b.price < a.price)
+        cout << "Listing #" << b.listingID << " is cheaper.\n";
+    else
+        cout << "Same price.\n";
+}
+
+
+
+//  Admin  (inherits User + IReportable)
+
+class Admin : public User, public IReportable {
+private:
+    string adminRank;
+    string department;
+    int    managedListings;
+    bool   banPermission;
+    int    yrsActive;
+
+public:
+    Admin()
+        : User(), adminRank("Moderator"), department("Operations"),
+          managedListings(0), banPermission(false), yrsActive(0) {}
+
+    Admin(string uname, string email, string phone,
+          string level, string dept)
+        : User(uname, email, phone), adminRank(level), department(dept),
+          managedListings(0), banPermission(level == "SuperAdmin"),
+          yrsActive(0) {}
+
+    Admin(const Admin& a)
+        : User(a), adminRank(a.adminRank), department(a.department),
+          managedListings(a.managedListings), banPermission(a.banPermission),
+          yrsActive(a.yrsActive) {}
+
+    Admin& operator=(const Admin& a) {
+        if (this != &a) {
+            User::operator=(a);
+            adminRank       = a.adminRank;
+            department      = a.department;
+            managedListings = a.managedListings;
+            banPermission   = a.banPermission;
+            yrsActive       = a.yrsActive;
+        }
+        return *this;
+    }
+
+    string getRole() const override { return "Admin"; }
+
+    void showProfile() const override {
+        User::showProfile();
+        cout << "    Role     : Admin"
+             << "  |  Level  : " << adminRank
+             << "  |  Dept   : " << department << "\n";
+        cout << "    Managed  : " << managedListings << " listings\n";
+    }
+
+    //  IReportable implementation 
+    void genReport() const override {
+        cout << "\n  === ADMIN REPORT ===\n";
+        cout << "  Admin      : " << getUsername() << "\n";
+        cout << "  Rank       : " << adminRank << " | Dept: " << department << "\n";
+        cout << "  Managed    : " << managedListings << " listings\n";
+        cout << "  Ban Access : " << (banPermission ? "Yes" : "No") << "\n";
+    }
+
+    string getSummaryTxt() const override {
+        return "Admin[" + getUsername() + "] Rank=" + adminRank +
+               " Managed=" + to_string(managedListings);
+    }
+
+    bool okayListing(Listing& listing) {
+        if (!listing.isApprovedStatus() && listing.isActiveStatus()) {
+            listing.setApproved(true);
+            managedListings++;
+            cout << "    Listing #" << listing.getLID()
+                 << " approved by [" << getUsername() << "]\n";
+            return true;
+        }
+        cout << "    Listing already processed or inactive.\n";
+        return false;
+    }
+
+    bool pullListing(Listing& listing) {
+        listing.setActive(false);
+        managedListings++;
+        cout << "    Listing #" << listing.getLID()
+             << " removed by [" << getUsername() << "]\n";
+        return true;
+    }
+
+    void blockUser(User& target) {
+        if (banPermission) {
+            target.disableAccount();
+            cout << "    User [" << target.getUsername() << "] banned.\n";
+        } else {
+            cout << "    Permission denied: only SuperAdmin can ban users.\n";
+        }
+    }
+
+    void showAdminInfo() const {
+        cout << "    Admin [" << getUsername() << "] | Level: " << adminRank
+             << " | Listings Managed: " << managedListings << "\n";
+    }
+
+    string getLevel()      const { return adminRank;       }
+    string getDept()       const { return department;      }
+    int    getHandledCnt() const { return managedListings; }
+
+    void setLevel(string l) { adminRank  = l; }
+    void setDept (string d) { department = d; }
+    void setYOS  (int    y) { yrsActive  = y; }
+};
+
+
+
+//  Seller  (inherits User + IReportable + IVerifiable)
+
+class Seller : public User, public IReportable, public IVerifiable {
+private:
+    string   bizName;
+    float    rating;
+    int      salesDone;
+    bool     verified;
+    Listing* myListings[MAX_SELLER_LISTINGS];
+    int      lstCount;
+
+public:
+    Seller()
+        : User(), bizName("Independent"), rating(0.0f),
+          salesDone(0), verified(false), lstCount(0) {
+        for (int i = 0; i < MAX_SELLER_LISTINGS; i++) myListings[i] = NULL;
+    }
+
+    Seller(string uname, string email, string phone, string bname)
+        : User(uname, email, phone), bizName(bname), rating(0.0f),
+          salesDone(0), verified(false), lstCount(0) {
+        for (int i = 0; i < MAX_SELLER_LISTINGS; i++) myListings[i] = NULL;
+    }
+
+    Seller(const Seller& s)
+        : User(s), bizName(s.bizName), rating(s.rating),
+          salesDone(s.salesDone), verified(s.verified),
+          lstCount(s.lstCount) {
+        for (int i = 0; i < MAX_SELLER_LISTINGS; i++)
+            myListings[i] = s.myListings[i];
+    }
+
+    Seller& operator=(const Seller& s) {
+        if (this != &s) {
+            User::operator=(s);
+            bizName   = s.bizName;
+            rating    = s.rating;
+            salesDone = s.salesDone;
+            verified  = s.verified;
+            lstCount  = s.lstCount;
+            for (int i = 0; i < MAX_SELLER_LISTINGS; i++)
+                myListings[i] = s.myListings[i];
+        }
+        return *this;
+    }
+
+    string getRole() const override { return "Seller"; }
+
+    void showProfile() const override {
+        User::showProfile();
+        cout << "    Role     : Seller"
+             << "  |  Business: " << bizName
+             << "  |  Rating  : " << fixed << setprecision(1) << rating << "/5\n";
+        cout << "    Verified : " << (verified ? "Yes" : "No")
+             << "  |  Sales   : " << salesDone << "\n";
+    }
+
+    //  IReportable implementation 
+    void genReport() const override {
+        cout << "\n  === SELLER REPORT ===\n";
+        cout << "  Seller     : " << getUsername() << " (" << bizName << ")\n";
+        cout << "  Rating     : " << fixed << setprecision(1) << rating << "/5\n";
+        cout << "  Sales Done : " << salesDone << "\n";
+        cout << "  Verified   : " << (verified ? "Yes" : "No") << "\n";
+        cout << "  Listings   : " << lstCount << "\n";
+    }
+
+    string getSummaryTxt() const override {
+        return "Seller[" + getUsername() + "] biz=" + bizName +
+               " rating=" + to_string((int)rating) + "/5";
+    }
+
+    //  IVerifiable implementation 
+    bool isVerified() const override { return verified; }
+    void doVerify()         override {
+        verified = true;
+        cout << "    Seller [" << getUsername() << "] verified!\n";
+    }
+
+    bool addLstRef(Listing* listing) {
+        if (lstCount < MAX_SELLER_LISTINGS) {
+            myListings[lstCount++] = listing;
+            return true;
+        }
+        cout << "    Seller listing capacity full.\n";
+        return false;
+    }
+
+    void showMyListings() const {
+        cout << "\n  === Listings by " << bizName << " ===\n";
+        bool any = false;
+        for (int i = 0; i < lstCount; i++) {
+            if (myListings[i] && myListings[i]->isActiveStatus()) {
+                myListings[i]->printCompact();
+                any = true;
+            }
+        }
+        if (!any) cout << "  No active listings.\n";
+    }
+
+    void refreshRating(float newRating) {
+        if (newRating >= 1.0f && newRating <= 5.0f)
+            rating = (rating == 0.0f) ? newRating : (rating + newRating) / 2.0f;
+    }
+
+    void logSale() { salesDone++; }
+
+    // kept for backward compatibility (calls doVerify internally)
+    void verify() { doVerify(); }
+
+    string   getBizName()    const { return bizName;  }
+    float    getRating()     const { return rating;   }
+    bool     checkVerified() const { return verified; }
+    int      getLstCount()   const { return lstCount; }
+    Listing* getListing(int i) const {
+        return (i >= 0 && i < lstCount) ? myListings[i] : NULL;
+    }
+
+    void setBizName  (string b) { bizName  = b; }
+    void markVerified(bool   v) { verified = v; }
+
+    // friend declaration so isCompatible can read private rating
+    friend bool isCompatible(const Seller& s, const Buyer& b);
+};
+
+
+
+//  Buyer  (inherits User)
+
+class Buyer : public User {
+private:
+    float    budget;
+    string   favBrand;
+    Listing* favorites[MAX_FAVORITES];
+    int      favCount;
+    Message  sentMessages[50];
+    int      msgCount;
+
+public:
+    Buyer()
+        : User(), budget(0.0f), favBrand("Any"),
+          favCount(0), msgCount(0) {
+        for (int i = 0; i < MAX_FAVORITES; i++) favorites[i] = NULL;
+    }
+
+    Buyer(string uname, string email, string phone, float budg, string brand)
+        : User(uname, email, phone), budget(budg), favBrand(brand),
+          favCount(0), msgCount(0) {
+        for (int i = 0; i < MAX_FAVORITES; i++) favorites[i] = NULL;
+    }
+
+    Buyer(const Buyer& b)
+        : User(b), budget(b.budget), favBrand(b.favBrand),
+          favCount(b.favCount), msgCount(b.msgCount) {
+        for (int i = 0; i < MAX_FAVORITES; i++) favorites[i]    = b.favorites[i];
+        for (int i = 0; i < msgCount;      i++) sentMessages[i] = b.sentMessages[i];
+    }
+
+    Buyer& operator=(const Buyer& b) {
+        if (this != &b) {
+            User::operator=(b);
+            budget   = b.budget;
+            favBrand = b.favBrand;
+            favCount = b.favCount;
+            msgCount = b.msgCount;
+            for (int i = 0; i < MAX_FAVORITES; i++) favorites[i]    = b.favorites[i];
+            for (int i = 0; i < msgCount;      i++) sentMessages[i] = b.sentMessages[i];
+        }
+        return *this;
+    }
+
+    string getRole() const override { return "Buyer"; }
+
+    void showProfile() const override {
+        User::showProfile();
+        cout << "    Role     : Buyer"
+             << "  |  Budget   : PKR " << fixed << setprecision(0) << budget
+             << "  |  Pref Brand: " << favBrand << "\n";
+        cout << "    Favorites: " << favCount
+             << "  |  Messages Sent: " << msgCount << "\n";
+    }
+
+    bool addToFavs(Listing* listing) {
+        if (favCount >= MAX_FAVORITES) {
+            cout << "    Favorites list full.\n";
+            return false;
+        }
+        for (int i = 0; i < favCount; i++)
+            if (favorites[i] == listing) {
+                cout << "    Already in favorites.\n";
+                return false;
+            }
+        favorites[favCount++] = listing;
+        cout << "    Listing #" << listing->getLID() << " saved to favorites!\n";
+        return true;
+    }
+
+    void showFavs() const {
+        cout << "\n  === " << getUsername() << "'s Favorites (" << favCount << ") ===\n";
+        if (favCount == 0) { cout << "  No favorites saved.\n"; return; }
+        for (int i = 0; i < favCount; i++)
+            if (favorites[i]) favorites[i]->printCompact();
+    }
+
+    bool sendMsg(int receiverID, const string& content, const string& ts) {
+        if (msgCount >= 50) { cout << "    Message inbox full.\n"; return false; }
+        sentMessages[msgCount++] = Message(getUID(), receiverID, content, ts);
+        cout << "    Message sent to User #" << receiverID << "\n";
+        return true;
+    }
+
+    void showSentMsgs() const {
+        cout << "\n  === Messages from " << getUsername() << " ===\n";
+        if (msgCount == 0) { cout << "  No messages sent.\n"; return; }
+        for (int i = 0; i < msgCount; i++) sentMessages[i].printMsg();
+    }
+
+    bool withinBudget(double p) const { return budget >= p; }
+
+    float  getBudget()   const { return budget;   }
+    string getFavBrand() const { return favBrand; }
+    int    getFavCount() const { return favCount; }
+    int    getMsgCount() const { return msgCount; }
+
+    void setBudget  (float  b) { budget   = b; }
+    void setFavBrand(string p) { favBrand = p; }
+
+
+    //  FRIEND FUNCTION 4 
+    // isCompatible checks whether a seller's rating is good enough
+    // for a buyer's budget tier. It needs raw access to Seller::rating
+    // and Buyer::budget which are both private. Declared friend in
+    // both classes (Seller above already has it through User friend chain).
+    friend bool isCompatible(const Seller& s, const Buyer& b);
+
+    // transferBudget friend declared in User, but needs Buyer::budget
+    // so re-declared here for access
+    friend void transferBudget(Buyer& giver, Buyer& recvr, float amt);
+};
+
+
+// friend function bodies for Buyer-related friends
+bool isCompatible(const Seller& s, const Buyer& b) {
+    // a seller with rating >= 3.5 is compatible with any budget > 500k
+    bool ratingOk = (s.rating >= 3.5f);
+    bool budgetOk = (b.budget > 500000.0f);
+    cout << "  [COMPAT CHECK] Seller rating=" << s.rating
+         << "  Buyer budget=PKR " << b.budget
+         << "  -> " << ((ratingOk && budgetOk) ? "Compatible" : "Not compatible") << "\n";
+    return ratingOk && budgetOk;
+}
+
+void transferBudget(Buyer& giver, Buyer& recvr, float amt) {
+    if (giver.budget < amt) {
+        cout << "  [TRANSFER] Insufficient budget in " << giver.getUsername() << "\n";
+        return;
+    }
+    giver.budget -= amt;
+    recvr.budget += amt;
+    cout << "  [TRANSFER] PKR " << amt << " moved from "
+         << giver.getUsername() << " to " << recvr.getUsername() << "\n";
+}
+
+
+
+//  Global arrays  (same as before)
+
+Listing* listings[MAX_LISTINGS];
+int      lstCount = 0;
+
+Seller   sellers[10];
+int      sellerCount = 0;
+
+Buyer    buyers[10];
+int      buyerCount = 0;
+
+Admin    admins[5];
+int      adminCount = 0;
+
+
+
+//  UI helpers
+
+void line()  { cout << "  " << string(52, '-') << "\n"; }
+void header(const string& t) {
+    cout << "\n"; line();
+    cout << "   " << t << "\n"; line();
+}
+
+void pause() {
+    cout << "\n  [Press ENTER to continue...]";
+    cin.ignore();
+    cin.get();
+}
+
+
+Engine collectEngineData() {
+    string type; float disp; int hp, tq; bool turbo;
+    cout << "  Engine type (Petrol/Diesel/Electric/Hybrid): "; getline(cin, type);
+    cout << "  Displacement (CC) : "; cin >> disp;  cin.ignore();
+    cout << "  Horsepower        : "; cin >> hp;    cin.ignore();
+    cout << "  Torque (Nm)       : "; cin >> tq;    cin.ignore();
+    cout << "  Turbocharged (1/0): "; cin >> turbo; cin.ignore();
+    return Engine(type, disp, hp, tq, turbo);
+}
+
+
+
+//  Demo function for all NEW concepts (runs at startup)
+
+void runNewFeaturesDemo() {
+    header("DEMO -- NEW OOP FEATURES (Assignment 2)");
+
+    // --- operator== on Engine ---
+    Engine e1("Petrol", 1300, 90, 120, false);
+    Engine e2("Petrol", 1300, 95, 115, true);
+    Engine e3("Diesel", 2000, 130, 250, false);
+    cout << "  [op==] e1 == e2 (same type+CC): " << (e1 == e2 ? "true" : "false") << "\n";
+    cout << "  [op==] e1 == e3 (diff type):    " << (e1 == e3 ? "true" : "false") << "\n";
+
+    // --- operator+ on Engine ---
+    Engine combined = e1 + e3;
+    cout << "  [op+]  Combined engine: ";
+    combined.printEngInfo();
+
+    // --- friend printEngineSecret ---
+    printEngineSecret(e1);
+
+    // --- operator== on Vehicle via Car ---
+    Car c1("Toyota", "Corolla", 2022, 30000, "White", e1, 4, "Auto", "FWD", 14.0f, true);
+    Car c2("Toyota", "Corolla", 2022, 55000, "Silver", e2, 4, "Manual", "FWD", 13.0f, true);
+    Car c3("Honda",  "Civic",   2021, 20000, "Black",  e3, 4, "Auto", "FWD", 13.5f, true);
+    cout << "  [op==] c1 == c2 (same brand/model/year): " << (c1 == c2 ? "true" : "false") << "\n";
+    cout << "  [op==] c1 == c3 (diff brand):            " << (c1 == c3 ? "true" : "false") << "\n";
+
+    // --- operator== on User ---
+    Seller s1("ahmed_s", "ahmed@mail.com",  "0300-1111111", "Ahmed Motors");
+    Seller s2("bilal_s", "bilal@mail.com",  "0301-2222222", "Bilal Autos");
+    cout << "  [op==] s1 == s1 (same UID): " << (s1 == (User&)s1 ? "true" : "false") << "\n";
+    cout << "  [op==] s1 == s2 (diff UID): " << (s1 == (User&)s2 ? "true" : "false") << "\n";
+
+    // --- IVerifiable ---
+    cout << "  [IVerifiable] s1 verified before: " << (s1.isVerified() ? "yes" : "no") << "\n";
+    s1.doVerify();
+    cout << "  [IVerifiable] s1 verified after:  " << (s1.isVerified() ? "yes" : "no") << "\n";
+
+    // --- IReportable ---
+    s1.genReport();
+
+    // --- Listing + IPriceable + ISearchable + operator< ---
+    Car* carPtr1 = new Car("Toyota", "Corolla", 2022, 30000, "White", e1, 4, "Auto", "FWD", 14.0f, true);
+    Car* carPtr2 = new Car("Honda",  "Civic",   2021, 20000, "Black", e3, 4, "Auto", "FWD", 13.5f, true);
+    Listing lst1(carPtr1, s1.getUID(), 3200000.0, "Karachi");
+    Listing lst2(carPtr2, s2.getUID(), 2800000.0, "Lahore");
+
+    cout << "  [IPriceable] lst1 base price  : PKR " << lst1.getBasePrice() << "\n";
+    cout << "  [IPriceable] lst1 at 10% off  : PKR " << lst1.getDiscountedPrice(10) << "\n";
+    cout << "  [ISearchable] 'Toyota' in lst1: " << (lst1.matchesQuery("Toyota") ? "found" : "not found") << "\n";
+    cout << "  [ISearchable] 'BMW' in lst1   : " << (lst1.matchesQuery("BMW")    ? "found" : "not found") << "\n";
+    cout << "  [op<] lst2 < lst1 (lst2 cheaper): " << (lst2 < lst1 ? "true" : "false") << "\n";
+
+    // --- friend comparePrices ---
+    comparePrices(lst1, lst2);
+
+    // --- Buyer + friend isCompatible + transferBudget ---
+    Buyer b1("sara_b",  "sara@mail.com",  "0302-3333333", 1500000.0f, "Toyota");
+    Buyer b2("usman_b", "usman@mail.com", "0303-4444444",  300000.0f, "Honda");
+    s1.refreshRating(4.2f);
+    isCompatible(s1, b1);
+    isCompatible(s1, b2);
+    transferBudget(b1, b2, 200000.0f);
+
+    // --- friend printEngineSecret ---
+    cout << "  [friend] Accessing engine private data directly:\n";
+    printEngineSecret(e2);
+
+    pause();
+}
+
+
+
+//  Menu functions (unchanged from assignment 1)
+
+void addNewListing() {
+    header("ADD NEW VEHICLE LISTING");
+
+    if (lstCount >= MAX_LISTINGS) { cout << "  Max listings reached!\n"; return; }
+    if (sellerCount == 0)         { cout << "  Register a seller first!\n"; return; }
+
+    cout << "\n  Available Sellers:\n";
+    for (int i = 0; i < sellerCount; i++)
+        cout << "    " << i << ". " << sellers[i].getUsername()
+             << " (" << sellers[i].getBizName() << ")\n";
+
+    int si; cout << "  Select seller index: "; cin >> si; cin.ignore();
+    if (si < 0 || si >= sellerCount) { cout << "  Invalid index.\n"; return; }
+
+    int vtype; cout << "  Vehicle type (1=Car / 2=Bike): "; cin >> vtype; cin.ignore();
+
+    string brand, model, color; int year; float mileage;
+    cout << "  Brand   : "; getline(cin, brand);
+    cout << "  Model   : "; getline(cin, model);
+    cout << "  Year    : "; cin >> year;    cin.ignore();
+    cout << "  Mileage : "; cin >> mileage; cin.ignore();
+    cout << "  Color   : "; getline(cin, color);
+
+    cout << "\n  -- Engine Details --\n";
+    Engine eng = collectEngineData();
+
+    double price; string location;
+    cout << "  Price (PKR) : "; cin >> price; cin.ignore();
+    cout << "  Location    : "; getline(cin, location);
+
+    Vehicle* veh = NULL;
+
+    if (vtype == 1) {
+        int doors; string trans, drive; float fuel; bool ac;
+        cout << "  Doors              : "; cin >> doors;  cin.ignore();
+        cout << "  Transmission       : "; getline(cin, trans);
+        cout << "  Drive type         : "; getline(cin, drive);
+        cout << "  Fuel efficiency k/l: "; cin >> fuel;  cin.ignore();
+        cout << "  Has AC (1/0)       : "; cin >> ac;    cin.ignore();
+        veh = new Car(brand, model, year, mileage, color,
+                      eng, doors, trans, drive, fuel, ac);
+    } else {
+        string btype; bool fairing, sidecar; int gears; float seat;
+        cout << "  Bike type (Sport/Cruiser/Off-road/Commuter): ";
+        getline(cin, btype);
+        cout << "  Num gears    : "; cin >> gears;   cin.ignore();
+        cout << "  Seat ht (mm) : "; cin >> seat;    cin.ignore();
+        cout << "  Fairing (1/0): "; cin >> fairing; cin.ignore();
+        cout << "  Sidecar (1/0): "; cin >> sidecar; cin.ignore();
+        veh = new Bike(brand, model, year, mileage, color,
+                       eng, btype, fairing, gears, seat, sidecar);
+    }
+
+    Listing* lst = new Listing(veh, sellers[si].getUID(), price, location);
+    listings[lstCount++] = lst;
+    sellers[si].addLstRef(lst);
+
+    cout << "\n  Listing #" << lst->getLID() << " created successfully!\n";
+    pause();
+}
+
+void showAllListings() {
+    header("ALL VEHICLE LISTINGS");
+    bool any = false;
+    for (int i = 0; i < lstCount; i++) {
+        if (listings[i] && listings[i]->isActiveStatus()) {
+            cout << "  [idx:" << i << "] ";
+            listings[i]->printCompact();
+            any = true;
+        }
+    }
+    if (!any) cout << "  No active listings.\n";
+    cout << "\n  Total active listings: " << Listing::getListCnt() << "\n";
+}
+
+void editListing() {
+    header("UPDATE LISTING");
+    showAllListings();
+
+    int idx; cout << "\n  Enter listing index: "; cin >> idx; cin.ignore();
+    if (idx < 0 || idx >= lstCount || !listings[idx]) {
+        cout << "  Invalid index.\n"; return;
+    }
+
+    double np; string nl;
+    cout << "  New price (PKR): "; cin >> np;  cin.ignore();
+    cout << "  New location   : "; getline(cin, nl);
+
+    listings[idx]->setPrice(np);
+    listings[idx]->setLocation(nl);
+    cout << "  Listing #" << listings[idx]->getLID() << " updated!\n";
+    pause();
+}
+
+void removeListing() {
+    header("DELETE LISTING");
+    showAllListings();
+
+    int idx; cout << "\n  Enter listing index: "; cin >> idx; cin.ignore();
+    if (idx < 0 || idx >= lstCount || !listings[idx]) {
+        cout << "  Invalid index.\n"; return;
+    }
+
+    listings[idx]->setActive(false);
+    cout << "  Listing #" << listings[idx]->getLID() << " deactivated.\n";
+    pause();
+}
+
+void filterListings() {
+    header("SEARCH & FILTER LISTINGS");
+    cout << "  1. By Brand\n  2. By Model\n  3. By Price Range\n"
+         << "  4. By Year\n  5. By Max Mileage\n  6. By Keyword (ISearchable)\n  Choice: ";
+
+    int ch; cin >> ch; cin.ignore();
+    bool found = false;
+
+    if (ch == 1) {
+        string b; cout << "  Brand: "; getline(cin, b);
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus() && listings[i]->fitsBrand(b)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+    } else if (ch == 2) {
+        string m; cout << "  Model: "; getline(cin, m);
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus() && listings[i]->fitsModel(m)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+    } else if (ch == 3) {
+        double mn, mx;
+        cout << "  Min price: "; cin >> mn;
+        cout << "  Max price: "; cin >> mx; cin.ignore();
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus() && listings[i]->fitsPrice(mn, mx)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+    } else if (ch == 4) {
+        int y; cout << "  Year: "; cin >> y; cin.ignore();
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus() && listings[i]->fitsYear(y)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+    } else if (ch == 5) {
+        float mx; cout << "  Max mileage (km): "; cin >> mx; cin.ignore();
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus() && listings[i]->fitsMileage(mx)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+    } else if (ch == 6) {
+        // uses ISearchable::matchesQuery -- polymorphic search
+        string kw; cout << "  Keyword: "; getline(cin, kw);
+        for (int i = 0; i < lstCount; i++) {
+            ISearchable* srch = listings[i];   // upcast to interface
+            if (srch && listings[i]->isActiveStatus() && srch->matchesQuery(kw)) {
+                cout << "  [idx:" << i << "] "; listings[i]->printCompact(); found = true;
+            }
+        }
+    }
+
+    if (!found) cout << "  No listings match your criteria.\n";
+    pause();
+}
+
+void addSeller() {
+    header("REGISTER SELLER");
+    if (sellerCount >= 10) { cout << "  Max sellers reached!\n"; return; }
+
+    string u, e, p, b;
+    cin.ignore();
+    cout << "  Username     : "; getline(cin, u);
+    cout << "  Email        : "; getline(cin, e);
+    cout << "  Phone        : "; getline(cin, p);
+    cout << "  Business Name: "; getline(cin, b);
+
+    sellers[sellerCount++] = Seller(u, e, p, b);
+    cout << "  Seller [" << u << "] registered! ID: "
+         << sellers[sellerCount - 1].getUID() << "\n";
+    pause();
+}
+
+void addBuyer() {
+    header("REGISTER BUYER");
+    if (buyerCount >= 10) { cout << "  Max buyers reached!\n"; return; }
+
+    string u, e, p, br; float budget;
+    cin.ignore();
+    cout << "  Username       : "; getline(cin, u);
+    cout << "  Email          : "; getline(cin, e);
+    cout << "  Phone          : "; getline(cin, p);
+    cout << "  Budget (PKR)   : "; cin >> budget; cin.ignore();
+    cout << "  Preferred Brand: "; getline(cin, br);
+
+    buyers[buyerCount++] = Buyer(u, e, p, budget, br);
+    cout << "  Buyer [" << u << "] registered! ID: "
+         << buyers[buyerCount - 1].getUID() << "\n";
+    pause();
+}
+
+void buyerMenu() {
+    header("BUYER PANEL");
+    if (buyerCount == 0) { cout << "  No buyers registered!\n"; return; }
+
+    cout << "  Select Buyer:\n";
+    for (int i = 0; i < buyerCount; i++)
+        cout << "    " << i << ". " << buyers[i].getUsername() << "\n";
+
+    int bi; cout << "  Buyer index: "; cin >> bi; cin.ignore();
+    if (bi < 0 || bi >= buyerCount) { cout << "  Invalid.\n"; return; }
+
+    header("BUYER PANEL - " + buyers[bi].getUsername());
+    cout << "  1. Save Listing to Favorites\n";
+    cout << "  2. View My Favorites\n";
+    cout << "  3. Send Message to Seller\n";
+    cout << "  4. View Sent Messages\n";
+    cout << "  5. View My Profile\n";
+    cout << "  Choice: ";
+
+    int ch; cin >> ch; cin.ignore();
+
+    if (ch == 1) {
+        showAllListings();
+        int li; cout << "  Listing index to save: "; cin >> li; cin.ignore();
+        if (li >= 0 && li < lstCount && listings[li])
+            buyers[bi].addToFavs(listings[li]);
+
+    } else if (ch == 2) {
+        buyers[bi].showFavs();
+
+    } else if (ch == 3) {
+        cout << "  Seller User IDs:\n";
+        for (int i = 0; i < sellerCount; i++)
+            cout << "    " << sellers[i].getUID()
+                 << " - " << sellers[i].getUsername() << "\n";
+
+        int rid; cout << "  Receiver User ID: "; cin >> rid; cin.ignore();
+        string msg; cout << "  Message         : "; getline(cin, msg);
+        buyers[bi].sendMsg(rid, msg, "2026-03-01");
+
+    } else if (ch == 4) {
+        buyers[bi].showSentMsgs();
+
+    } else if (ch == 5) {
+        buyers[bi].showProfile();
+    }
+    pause();
+}
+
+void adminMenu() {
+    header("ADMIN PANEL");
+
+    if (adminCount == 0) {
+        admins[adminCount++] = Admin("superadmin", "admin@pakwheels.pk",
+                                     "0300-0000000", "SuperAdmin", "IT");
+        cout << "  Default admin created  ->  username: superadmin\n";
+    }
+
+    cout << "  Admin username: "; string un; cin.ignore(); getline(cin, un);
+    int ai = -1;
+    for (int i = 0; i < adminCount; i++)
+        if (admins[i].getUsername() == un) { ai = i; break; }
+
+    if (ai == -1) { cout << "  Admin not found!\n"; return; }
+
+    header("ADMIN PANEL - " + admins[ai].getUsername());
+    cout << "  1. Approve Listing\n";
+    cout << "  2. Remove Listing\n";
+    cout << "  3. View All Listings (detail)\n";
+    cout << "  4. Verify a Seller\n";
+    cout << "  5. System Statistics\n";
+    cout << "  6. Compare Two Listing Prices  [friend func demo]\n";
+    cout << "  7. Generate Seller Report      [IReportable demo]\n";
+    cout << "  Choice: ";
+
+    int ch; cin >> ch; cin.ignore();
+
+    if (ch == 1) {
+        showAllListings();
+        int li; cout << "  Listing index to approve: "; cin >> li; cin.ignore();
+        if (li >= 0 && li < lstCount && listings[li])
+            admins[ai].okayListing(*listings[li]);
+
+    } else if (ch == 2) {
+        showAllListings();
+        int li; cout << "  Listing index to remove: "; cin >> li; cin.ignore();
+        if (li >= 0 && li < lstCount && listings[li])
+            admins[ai].pullListing(*listings[li]);
+
+    } else if (ch == 3) {
+        header("DETAILED LISTING VIEW");
+        for (int i = 0; i < lstCount; i++)
+            if (listings[i] && listings[i]->isActiveStatus())
+                listings[i]->printListing();
+
+    } else if (ch == 4) {
+        cout << "  Sellers:\n";
+        for (int i = 0; i < sellerCount; i++)
+            cout << "    " << i << ". " << sellers[i].getUsername() << "\n";
+        int si; cout << "  Seller index: "; cin >> si; cin.ignore();
+        if (si >= 0 && si < sellerCount) sellers[si].verify();
+
+    } else if (ch == 5) {
+        header("SYSTEM STATISTICS");
+        cout << "  Total Users Created  : " << User::getUserCount()       << "\n";
+        cout << "  Total Vehicles Live  : " << Vehicle::getVehicleCount() << "\n";
+        cout << "  Total Listings Live  : " << Listing::getListCnt()      << "\n";
+        cout << "  Total Messages Live  : " << Message::getMsgCount()     << "\n";
+        cout << "  Registered Sellers   : " << sellerCount                << "\n";
+        cout << "  Registered Buyers    : " << buyerCount                 << "\n";
+        cout << "  Registered Admins    : " << adminCount                 << "\n";
+        cout << "  Next Listing ID      : " << Listing::getNextLID()      << "\n";
+        admins[ai].showAdminInfo();
+        admins[ai].genReport();   // IReportable
+
+    } else if (ch == 6) {
+        if (lstCount < 2) { cout << "  Need at least 2 listings.\n"; }
+        else {
+            int a, b;
+            cout << "  First listing index : "; cin >> a; cin.ignore();
+            cout << "  Second listing index: "; cin >> b; cin.ignore();
+            if (a >= 0 && a < lstCount && b >= 0 && b < lstCount && listings[a] && listings[b])
+                comparePrices(*listings[a], *listings[b]);
+        }
+
+    } else if (ch == 7) {
+        cout << "  Sellers:\n";
+        for (int i = 0; i < sellerCount; i++)
+            cout << "    " << i << ". " << sellers[i].getUsername() << "\n";
+        int si; cout << "  Seller index: "; cin >> si; cin.ignore();
+        if (si >= 0 && si < sellerCount) {
+            IReportable* rpt = &sellers[si];   // upcast to interface
+            rpt->genReport();
+        }
+    }
+    pause();
+}
+
+
+
+//  main
+
+int main() {
+    const int   MAX_DISPLAY_ITEMS   = 10;
+    const int*  const maxDisplayPtr = &MAX_DISPLAY_ITEMS;
+
+    cout << "\n";
+    cout << "  +--+\n";
+    cout << "  |          PakWheels-Clone  |  C++ OOP             |\n";
+    cout << "  |        Car Marketplace Management System         |\n";
+    cout << "  |     (Max " << *maxDisplayPtr
+         << " results per page - const pointer)     |\n";
+    cout << "  +--+\n";
+
+    // run the demo for all new assignment-2 concepts automatically
+    runNewFeaturesDemo();
+
+    int choice = -1;
+
+    do {
+        header("MAIN MENU");
+        cout << "  -- LISTINGS ---\n";
+        cout << "  1.  Add Vehicle Listing\n";
+        cout << "  2.  View All Listings\n";
+        cout << "  3.  Update Listing\n";
+        cout << "  4.  Delete Listing\n";
+        cout << "  5.  Search / Filter Listings\n";
+        cout << "\n  -- USERS --\n";
+        cout << "  6.  Register Seller\n";
+        cout << "  7.  Register Buyer\n";
+        cout << "  8.  Buyer Panel  (Favorites / Messages)\n";
+        cout << "\n  -- ADMINISTRATION -\n";
+        cout << "  9.  Admin Panel  (Approve / Remove / Stats)\n";
+        cout << "\n  0.  Exit\n";
+        line();
+        cout << "  Choice: ";
+        cin >> choice;
+
+        switch (choice) {
+            case 1: addNewListing();           break;
+            case 2: showAllListings(); pause(); break;
+            case 3: editListing();             break;
+            case 4: removeListing();           break;
+            case 5: filterListings();          break;
+            case 6: addSeller();               break;
+            case 7: addBuyer();                break;
+            case 8: buyerMenu();               break;
+            case 9: adminMenu();               break;
+            case 0: break;
+            default: cout << "  Invalid choice, try again.\n";
+        }
+
+    } while (choice != 0);
+
+    cout << "\n  Thanks for using PakWheels-Clone. Goodbye!\n\n";
+
+    for (int i = 0; i < lstCount; i++) {
+        delete listings[i];
+        listings[i] = NULL;
+    }
+
+    return 0;
+}
 
